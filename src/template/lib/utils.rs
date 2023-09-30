@@ -1,10 +1,12 @@
 use fs_extra::dir::{copy as copy_dir, CopyOptions};
 use regex::Regex;
-use std::fs::remove_dir_all;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::{env, fs};
+use std::{
+    env, fs,
+    io::{BufRead, BufReader},
+    path::Path,
+    process::{Command, Stdio},
+    str,
+};
 
 pub fn get_os() -> &'static str {
     let os = env::consts::OS;
@@ -31,7 +33,7 @@ pub fn get_arch() -> &'static str {
 // }
 
 fn list_github_tags(gh_repo: &str) -> Vec<String> {
-    let git_ls_remote = Command::new("git")
+    let git_process = Command::new("git")
         .args([
             "ls-remote",
             "--sort",
@@ -42,11 +44,16 @@ fn list_github_tags(gh_repo: &str) -> Vec<String> {
             "--refs",
             gh_repo,
         ])
-        .output();
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to execute 'git'")
+        .wait_with_output()
+        .expect("Failed to wait on git");
     let re = Regex::new(r"v(\d+\.\d+\.\d+)").unwrap();
-    let mut versions = Vec::new();
-    let output = String::from_utf8(git_ls_remote.unwrap().stdout).unwrap();
-    for cap in re.captures_iter(&output) {
+    let mut versions: Vec<String> = Vec::new();
+    let git_output =
+        str::from_utf8(&git_process.stdout).expect("Invalid UTF-8 in response from git");
+    for cap in re.captures_iter(&git_output) {
         versions.push(cap[1].to_string());
     }
     return versions;
@@ -70,18 +77,18 @@ pub fn download_release(gh_repo: &str, tool_name: &str, version: &str, filename:
             curl_opts.insert(1, &auth);
         }
     }
-    println!("* Downloading {tool_name} release {version}...");
+    println!("* Downloading {tool_name} release {version} ...");
     // println!("* With {auth} from {url}");
-    let stdout = Command::new("curl")
+    let curl_process = Command::new("curl")
         .args(curl_opts)
         .stdout(Stdio::piped())
         .spawn()
-        .unwrap()
+        .expect("Failed to execute curl")
         .stdout
-        .unwrap();
+        .expect("Failed to get curl output");
 
-    let reader = BufReader::new(stdout);
-    reader
+    let curl_op_reader = BufReader::new(curl_process);
+    curl_op_reader
         .lines()
         .filter_map(|line| line.ok())
         .for_each(|line| println!("{}", line));
@@ -94,7 +101,8 @@ pub fn install_version(tool_name: &str, install_type: &str, version: &str, insta
     }
 
     // install
-    let mut rtx_download_path_str = env::var("RTX_DOWNLOAD_PATH").unwrap();
+    let mut rtx_download_path_str =
+        env::var("RTX_DOWNLOAD_PATH").expect("RTX_DOWNLOAD_PATH is not set");
     rtx_download_path_str = format!("{rtx_download_path_str}/*");
     let install_src = Path::new(&rtx_download_path_str);
     let install_dest_str = if !install_path.ends_with("/bin") {
@@ -104,23 +112,24 @@ pub fn install_version(tool_name: &str, install_type: &str, version: &str, insta
     };
     let install_dest = Path::new(&install_dest_str);
 
-    fs::create_dir(install_dest).unwrap();
+    fs::create_dir_all(install_dest)
+        .expect(&format!("Unable to create directory at {install_dest_str}"));
     let cpy_options = CopyOptions::new();
-    copy_dir(install_src, install_dest, &cpy_options).unwrap();
-    // chmod
+    copy_dir(install_src, install_dest, &cpy_options).expect("Failed to copy directory");
+    // TODO: chmod
 
     // test
     let tool_check = vec![tool_name, "--version"];
     if !Command::new(tool_check[0])
         .args([tool_check[1]])
         .output()
-        .unwrap()
+        .expect("Failed to execute {tool_name}")
         .status
         .success()
     {
-        remove_dir_all(install_dest).unwrap();
-        println!(
-            "Expected {install_dest_str}/{} to be executable.",
+        fs::remove_dir_all(install_dest).expect("Failed to remove directory");
+        panic!(
+            "Expected {install_dest_str}/{} to be executable",
             tool_check[0]
         );
     }
