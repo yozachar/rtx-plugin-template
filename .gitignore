@@ -16,3 +16,4 @@ Cargo.lock
 
 # local
 .rtx.toml
+dump/

@@ -86,13 +86,53 @@ pub fn download_release(gh_repo: &str, tool_name: &str, version: &str, filename:
         .expect("Failed to execute curl")
         .stdout
         .expect("Failed to get curl output");
-
+    _ = auth;
     let curl_op_reader = BufReader::new(curl_process);
     curl_op_reader
         .lines()
         .filter_map(|line| line.ok())
         .for_each(|line| println!("{}", line));
-    _ = auth;
+}
+
+fn test_windows_exec(tool_path: &str, tool_check: &Vec<&str>) -> bool {
+    /*
+        icacls "file.exe" /grant "BUILTIN\Users":RX
+    */
+    _ = tool_path;
+    _ = tool_check;
+    unimplemented!();
+}
+
+fn test_nix_exec(tool_path: &str, tool_check: &Vec<&str>) -> bool {
+    if !Command::new("chmod")
+        .args(["u+x", tool_path])
+        .output()
+        .expect("Failed to execute chmod")
+        .status
+        .success()
+    {
+        return false;
+    }
+    if !Command::new("test")
+        .args(["-x", tool_path])
+        .output()
+        .expect("Failed to execute test")
+        .status
+        .success()
+    {
+        return false;
+    }
+
+    if !Command::new(tool_check[0])
+        .args(&tool_check[1..])
+        .output()
+        .expect(&format!("Failed to execute {}", tool_check[0]))
+        .status
+        .success()
+    {
+        return false;
+    }
+    return true;
 }
 
 pub fn install_version(tool_name: &str, install_type: &str, version: &str, install_path: &str) {
@@ -101,11 +141,11 @@ pub fn install_version(tool_name: &str, install_type: &str, version: &str, insta
     }
 
     // install
-    let mut rtx_download_path_str =
+    let rtx_download_path_str =
         env::var("RTX_DOWNLOAD_PATH").expect("RTX_DOWNLOAD_PATH is not set");
-    rtx_download_path_str = format!("{rtx_download_path_str}/*");
+    // rtx_download_path_str = format!("{rtx_download_path_str}/*");
     let install_src = Path::new(&rtx_download_path_str);
-    let install_dest_str = if !install_path.ends_with("/bin") {
+    let install_dest_str = if !(install_path.ends_with("/bin") || install_path.ends_with("/bin/")) {
         format!("{install_path}/bin")
     } else {
         install_path.to_string()
@@ -114,19 +154,18 @@ pub fn install_version(tool_name: &str, install_type: &str, version: &str, insta
 
     fs::create_dir_all(install_dest)
         .expect(&format!("Unable to create directory at {install_dest_str}"));
-    let cpy_options = CopyOptions::new();
+    let cpy_options = CopyOptions::new().overwrite(true).content_only(true);
     copy_dir(install_src, install_dest, &cpy_options).expect("Failed to copy directory");
-    // TODO: chmod
 
     // test
     let tool_check = vec![tool_name, "--version"];
-    if !Command::new(tool_check[0])
-        .args([tool_check[1]])
-        .output()
-        .expect("Failed to execute {tool_name}")
-        .status
-        .success()
-    {
+    let test_exec = if get_os() == "Windows" {
+        test_windows_exec(&format!("{install_dest_str}/{tool_name}"), &tool_check)
+    } else {
+        test_nix_exec(&format!("{install_dest_str}/{tool_name}"), &tool_check)
+    };
+
+    if !test_exec {
         fs::remove_dir_all(install_dest).expect("Failed to remove directory");
         panic!(
             "Expected {install_dest_str}/{} to be executable",
