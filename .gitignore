@@ -15,5 +15,5 @@ Cargo.lock
 *.pdb
 
 # local
-.rtx.toml
+# .rtx.toml
 dump/
