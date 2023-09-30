@@ -10,22 +10,22 @@ use std::{
 
 pub fn get_os() -> &'static str {
     let os = env::consts::OS;
-    return match os {
+    match os {
         "darwin" => "Darwin",
         "linux" => "Linux",
         "windows" => "Windows",
         _ => panic!("{os} is unsupported"),
-    };
+    }
 }
 
 pub fn get_arch() -> &'static str {
     let arch = env::consts::ARCH;
-    return match arch {
+    match arch {
         "x86_64" => "x86_64",
         "arm64" => "arm64",
         "i386" => "i386",
         _ => panic!("Architecture {arch} is unsupported"),
-    };
+    }
 }
 
 // pub fn sort_versions(gh_repo: &str) -> Vec<String> {
@@ -53,14 +53,14 @@ fn list_github_tags(gh_repo: &str) -> Vec<String> {
     let mut versions: Vec<String> = Vec::new();
     let git_output =
         str::from_utf8(&git_process.stdout).expect("Invalid UTF-8 in response from git");
-    for cap in re.captures_iter(&git_output) {
+    for cap in re.captures_iter(git_output) {
         versions.push(cap[1].to_string());
     }
-    return versions;
+    versions
 }
 
 pub fn list_all_versions(gh_repo: &str) -> Vec<String> {
-    return list_github_tags(gh_repo);
+    list_github_tags(gh_repo)
 }
 
 pub fn download_release(gh_repo: &str, tool_name: &str, version: &str, filename: &str) {
@@ -72,7 +72,7 @@ pub fn download_release(gh_repo: &str, tool_name: &str, version: &str, filename:
     let mut auth = String::from("");
     let mut curl_opts = vec!["-fsSL", "-o", filename, "-C", "-", &url];
     if let Ok(gh_api_token) = env::var("GITHUB_API_TOKEN") {
-        if gh_api_token != "" {
+        if !gh_api_token.is_empty() {
             auth = format!("-H Authorization: token {gh_api_token}");
             curl_opts.insert(1, &auth);
         }
@@ -90,11 +90,11 @@ pub fn download_release(gh_repo: &str, tool_name: &str, version: &str, filename:
     let curl_op_reader = BufReader::new(curl_process);
     curl_op_reader
         .lines()
-        .filter_map(|line| line.ok())
+        .map_while(Result::ok)
         .for_each(|line| println!("{}", line));
 }
 
-fn test_windows_exec(tool_path: &str, tool_check: &Vec<&str>) -> bool {
+fn test_windows_exec(tool_path: &str, tool_check: &[&str]) -> bool {
     /*
         icacls "file.exe" /grant "BUILTIN\Users":RX
     */
@@ -103,7 +103,7 @@ fn test_windows_exec(tool_path: &str, tool_check: &Vec<&str>) -> bool {
     unimplemented!();
 }
 
-fn test_nix_exec(tool_path: &str, tool_check: &Vec<&str>) -> bool {
+fn test_nix_exec(tool_path: &str, tool_check: &[&str]) -> bool {
     if !Command::new("chmod")
         .args(["u+x", tool_path])
         .output()
@@ -126,13 +126,13 @@ fn test_nix_exec(tool_path: &str, tool_check: &Vec<&str>) -> bool {
     if !Command::new(tool_check[0])
         .args(&tool_check[1..])
         .output()
-        .expect(&format!("Failed to execute {}", tool_check[0]))
+        .unwrap_or_else(|_| panic!("Failed to execute {}", tool_check[0]))
         .status
         .success()
     {
         return false;
     }
-    return true;
+    true
 }
 
 pub fn install_version(tool_name: &str, install_type: &str, version: &str, install_path: &str) {
@@ -153,7 +153,7 @@ pub fn install_version(tool_name: &str, install_type: &str, version: &str, insta
     let install_dest = Path::new(&install_dest_str);
 
     fs::create_dir_all(install_dest)
-        .expect(&format!("Unable to create directory at {install_dest_str}"));
+        .unwrap_or_else(|_| panic!("Unable to create directory at {install_dest_str}"));
     let cpy_options = CopyOptions::new().overwrite(true).content_only(true);
     copy_dir(install_src, install_dest, &cpy_options).expect("Failed to copy directory");
 

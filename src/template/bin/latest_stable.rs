@@ -9,7 +9,7 @@ pub fn latest_stable(gh_repo: &str) -> String {
     let mut auth = String::from("");
     let mut curl_opts = vec!["-sI"];
     if let Ok(gh_api_token) = env::var("GITHUB_API_TOKEN") {
-        if gh_api_token != "" {
+        if !gh_api_token.is_empty() {
             auth = format!("-H Authorization: token {gh_api_token}");
             curl_opts.push(&auth);
         }
